@@ -1,0 +1,6 @@
+---
+# Default variables for NFS role
+nfs_mode: server  # Can be 'server' or 'client'
+nfs_export_path: /srv/nfs
+nfs_server_ip: 192.168.1.100
+nfs_mount_path: /mnt/nfs

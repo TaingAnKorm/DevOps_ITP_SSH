@@ -1,0 +1,8 @@
+---
+- name: Setup NFS Server
+  include_tasks: setup-nfs-server.yml
+  when: nfs_mode == "server"
+
+- name: Setup NFS Client
+  include_tasks: setup-nfs-client.yml
+  when: nfs_mode == "client"

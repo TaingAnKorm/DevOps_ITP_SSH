@@ -1,0 +1,92 @@
+---
+- name: Test NFS Folder Synchronization
+  hosts: all
+  become: true
+  tasks:
+    - name: Create test folder on NFS server
+      file:
+        path: "{{ nfs_server.mount_path }}/test_folder"
+        state: directory
+        mode: "0777"
+      when: inventory_hostname in groups['nfs-servers']
+
+    - name: Create test file on NFS server
+      copy:
+        content: |
+          This is a test file created on NFS server!
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          Server: {{ inventory_hostname }}
+        dest: "{{ nfs_server.mount_path }}/test_folder/test_file.txt"
+        mode: "0666"
+      when: inventory_hostname in groups['nfs-servers']
+
+    - name: Wait for NFS sync
+      pause:
+        seconds: 2
+
+    - name: Check if folder exists on NFS client
+      stat:
+        path: "{{ nfs_client.mount_path }}/test_folder"
+      register: folder_check
+      when: inventory_hostname in groups['app-servers']
+
+    - name: Check if file exists on NFS client
+      stat:
+        path: "{{ nfs_client.mount_path }}/test_folder/test_file.txt"
+      register: file_check
+      when: inventory_hostname in groups['app-servers']
+
+    - name: Read file content on NFS client
+      slurp:
+        src: "{{ nfs_client.mount_path }}/test_folder/test_file.txt"
+      register: file_content
+      when: inventory_hostname in groups['app-servers']
+
+    - name: Display test results
+      debug:
+        msg:
+          - "========================================="
+          - "NFS Synchronization Test Results"
+          - "========================================="
+          - "Server: {{ inventory_hostname }}"
+          - ""
+      when: inventory_hostname in groups['nfs-servers']
+
+    - name: Display client test results
+      debug:
+        msg:
+          - "========================================="
+          - "NFS Client Test Results"
+          - "========================================="
+          - "Server: {{ inventory_hostname }}"
+          - "Folder exists: {{ folder_check.stat.exists }}"
+          - "File exists: {{ file_check.stat.exists }}"
+          - ""
+          - "File content:"
+          - "{{ file_content.content | b64decode }}"
+          - ""
+          - "✅ SUCCESS: NFS folder synchronization is working!"
+          - "Files created on NFS server are visible on client!"
+      when: inventory_hostname in groups['app-servers']
+
+    - name: List all files in shared directory (NFS Server)
+      command: ls -la {{ nfs_server.mount_path }}
+      register: server_files
+      changed_when: false
+      when: inventory_hostname in groups['nfs-servers']
+
+    - name: List all files in mounted directory (NFS Client)
+      command: ls -la {{ nfs_client.mount_path }}
+      register: client_files
+      changed_when: false
+      when: inventory_hostname in groups['app-servers']
+
+    - name: Display NFS server directory listing
+      debug:
+        msg: "{{ server_files.stdout_lines }}"
+      when: inventory_hostname in groups['nfs-servers']
+
+    - name: Display NFS client directory listing
+      debug:
+        msg: "{{ client_files.stdout_lines }}"
+      when: inventory_hostname in groups['app-servers']

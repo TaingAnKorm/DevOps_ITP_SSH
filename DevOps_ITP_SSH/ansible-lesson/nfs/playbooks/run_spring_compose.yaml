@@ -1,0 +1,45 @@
+---
+- name: Deploy Spring Boot Application
+  hosts: app-servers
+  become: true
+  
+  tasks:
+    - name: Create app directory
+      file:
+        path: /opt/spring-app
+        state: directory
+        mode: '0755'
+
+    - name: Ensure NFS images4 directory exists on the shared volume
+      # access the mount point directly since it's mounted on clients
+      file:
+        path: /mnt/nfs_shared/images4
+        state: directory
+        mode: '0777'
+
+    - name: Copy Docker Compose file
+      copy:
+        src: ../docker-compose.yml
+        dest: /opt/spring-app/docker-compose.yml
+        mode: '0644'
+
+    - name: Run Docker Compose
+      shell: docker compose up -d
+      args:
+        chdir: /opt/spring-app
+      register: compose_result
+      changed_when: "'Running' not in compose_result.stderr and 'Started' in compose_result.stderr"
+
+    - name: Verify Container is Running
+      shell: docker compose ps
+      args:
+        chdir: /opt/spring-app
+      register: compose_ps
+      changed_when: false
+
+    - name: Display Status
+      debug:
+        msg: 
+          - "✅ Spring Application Deployed Successfully!"
+          - "{{ compose_ps.stdout_lines }}"
+          - "Access at: http://{{ ansible_host }}:8083"

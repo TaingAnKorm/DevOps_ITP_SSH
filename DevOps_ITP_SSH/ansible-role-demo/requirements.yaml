@@ -1,0 +1,5 @@
+---
+roles:
+  - name: nfs
+    src: https://github.com/TaingAnKorm/nfs-role
+    version: master

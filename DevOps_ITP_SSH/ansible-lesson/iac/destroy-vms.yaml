@@ -1,0 +1,47 @@
+---
+- name: Destroy GCP VMs
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars_files:
+    - gcp-vars.yaml
+
+  tasks:
+    - name: Activate service account
+      shell: |
+        gcloud auth activate-service-account \
+          --key-file={{ lookup('env', 'HOME') }}/ansible-lesson/iac/gcp-key.json \
+          --project={{ gcp_project }}
+      changed_when: false
+
+    - name: Delete App1 Server VM
+      shell: |
+        gcloud compute instances delete {{ app1_server_name }} \
+          --project={{ gcp_project }} \
+          --zone={{ gcp_zone }} \
+          --quiet
+      register: delete_app1_result
+      changed_when: "'Deleted' in delete_app1_result.stdout"
+      failed_when:
+        - delete_app1_result.rc != 0
+        - "'was not found' not in delete_app1_result.stderr"
+
+    - name: Delete App Server VM
+      shell: |
+        gcloud compute instances delete {{ app_server_name }} \
+          --project={{ gcp_project }} \
+          --zone={{ gcp_zone }} \
+          --quiet
+      register: delete_app_result
+      changed_when: "'Deleted' in delete_app_result.stdout"
+      failed_when:
+        - delete_app_result.rc != 0
+        - "'was not found' not in delete_app_result.stderr"
+
+    - name: Clean up generated files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - vm-ips.txt
+        - inventory-generated.ini

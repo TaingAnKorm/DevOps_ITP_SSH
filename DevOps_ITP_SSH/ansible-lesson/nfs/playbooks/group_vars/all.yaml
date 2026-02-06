@@ -1,0 +1,12 @@
+---
+# NFS Server Configuration (localhost - this machine)
+nfs_server:
+  mount_path: /srv/nfs_shared
+  ip: 34.142.203.158  # This machine's external IP
+
+# NFS Client Configuration (Kubernetes workers)
+nfs_client:
+  ips:
+    - 34.142.165.79   # k8s-worker1
+    - 34.126.85.133   # k8s-worker2
+  mount_path: /mnt/nfs_shared

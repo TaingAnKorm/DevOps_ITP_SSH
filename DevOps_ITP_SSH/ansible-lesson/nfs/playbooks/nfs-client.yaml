@@ -1,0 +1,41 @@
+---
+- name: Setup NFS Client
+  hosts: nfs-clients
+  become: true
+  tasks:
+    - name: Update APT Caches
+      apt:
+        update_cache: yes
+
+    - name: Install NFS Common Package
+      apt:
+        name: nfs-common
+        state: present
+
+    - name: Create Mount Point Directory
+      file:
+        path: "{{ nfs_client.mount_path }}"
+        state: directory
+        mode: "0777"
+
+    - name: Mount NFS Share
+      mount:
+        path: "{{ nfs_client.mount_path }}"
+        src: "{{ nfs_server.ip }}:{{ nfs_server.mount_path }}"
+        fstype: nfs
+        opts: defaults
+        state: mounted
+
+    - name: Verify Mount
+      command: df -h {{ nfs_client.mount_path }}
+      register: mount_check
+      changed_when: false
+
+    - name: Display Mount Information
+      debug:
+        msg:
+          - "✅ NFS client configured successfully!"
+          - "Mount point: {{ nfs_client.mount_path }}"
+          - "NFS server: {{ nfs_server.ip }}:{{ nfs_server.mount_path }}"
+          - ""
+          - "{{ mount_check.stdout_lines }}"

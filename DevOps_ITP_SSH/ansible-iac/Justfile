@@ -1,0 +1,5 @@
+create:
+    ansible-playbook -i inventory.ini playbooks/create_gcp.yaml
+
+destroy:
+    ansible-playbook -i inventory.ini playbooks/destroy_gcp.yaml

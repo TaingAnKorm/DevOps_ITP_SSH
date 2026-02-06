@@ -1,0 +1,15 @@
+provision:
+    echo "🚀 Provisioning GCP VMs..."
+    ansible-playbook provision-vms.yaml
+
+destroy:
+    echo "💥 Destroying GCP VMs..."
+    ansible-playbook destroy-vms.yaml
+
+show-ips:
+    echo "📋 VM IP Addresses:"
+    @cat vm-ips.txt 2>/dev/null || echo "No VMs provisioned yet. Run 'just provision' first."
+
+status:
+    echo "📊 Checking GCP VM status..."
+    gcloud compute instances list --project=feisty-script-469614-h4 --filter="name:(nfs-server OR app-server)"

@@ -1,0 +1,150 @@
+---
+- name: Provision GCP VMs
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars_files:
+    - gcp-vars.yaml
+
+  tasks:
+    - name: Activate service account
+      shell: |
+        gcloud auth activate-service-account \
+          --key-file={{ lookup('env', 'HOME') }}/ansible-lesson/iac/gcp-key.json \
+          --project={{ gcp_project }}
+      changed_when: false
+
+    # Create App1 Server (Format: app1-server)
+    - name: Create App1 Server VM using gcloud
+      shell: |
+        gcloud compute instances create {{ app1_server_name }} \
+          --project={{ gcp_project }} \
+          --zone={{ gcp_zone }} \
+          --machine-type={{ vm_machine_type }} \
+          --image-family={{ vm_image_family }} \
+          --image-project={{ vm_image_project }} \
+          --boot-disk-size=20GB \
+          --boot-disk-type=pd-standard \
+          --tags=nfs-client,http-server \
+          --metadata=ssh-keys="{{ ssh_user }}:{{ lookup('file', ssh_key_path) }}" \
+          --format=json
+      register: app1_server_result
+      changed_when: "'already exists' not in app1_server_result.stderr"
+      failed_when: 
+        - app1_server_result.rc != 0
+        - "'already exists' not in app1_server_result.stderr"
+
+    # Create App Server (Format: app-server)
+    - name: Create App Server VM using gcloud
+      shell: |
+        gcloud compute instances create {{ app_server_name }} \
+          --project={{ gcp_project }} \
+          --zone={{ gcp_zone }} \
+          --machine-type={{ vm_machine_type }} \
+          --image-family={{ vm_image_family }} \
+          --image-project={{ vm_image_project }} \
+          --boot-disk-size=20GB \
+          --boot-disk-type=pd-standard \
+          --tags=nfs-client,http-server \
+          --metadata=ssh-keys="{{ ssh_user }}:{{ lookup('file', ssh_key_path) }}" \
+          --format=json
+      register: app_server_result
+      changed_when: "'already exists' not in app_server_result.stderr"
+      failed_when: 
+        - app_server_result.rc != 0
+        - "'already exists' not in app_server_result.stderr"
+
+    # Get IP Addresses
+    - name: Get App1 Server IP
+      shell: |
+        gcloud compute instances describe {{ app1_server_name }} \
+          --project={{ gcp_project }} \
+          --zone={{ gcp_zone }} \
+          --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+      register: app1_server_ip
+      changed_when: false
+
+    - name: Get App Server IP
+      shell: |
+        gcloud compute instances describe {{ app_server_name }} \
+          --project={{ gcp_project }} \
+          --zone={{ gcp_zone }} \
+          --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+      register: app_server_ip
+      changed_when: false
+
+    # Firewall Rules - Allow Internal NFS (10.128.0.0/9 covers default VPC)
+    - name: Create firewall rule for Internal NFS
+      shell: |
+        gcloud compute firewall-rules create allow-internal-nfs \
+          --project={{ gcp_project }} \
+          --allow=tcp:2049,tcp:111,udp:111,tcp:20048,udp:20048 \
+          --source-ranges=10.128.0.0/9 \
+          --description="Allow NFS traffic from internal network" \
+          --quiet
+      register: fw_nfs_result
+      changed_when: "'Created' in fw_nfs_result.stderr"
+      failed_when: 
+        - fw_nfs_result.rc != 0
+        - "'already exists' not in fw_nfs_result.stderr"
+
+    - name: Create firewall rule for HTTP
+      shell: |
+        gcloud compute firewall-rules create allow-http \
+          --project={{ gcp_project }} \
+          --allow=tcp:80,tcp:8080 \
+          --target-tags=http-server \
+          --description="Allow HTTP traffic" \
+          --quiet
+      register: fw_http_result
+      changed_when: "'Created' in fw_http_result.stderr"
+      failed_when: 
+        - fw_http_result.rc != 0
+        - "'already exists' not in fw_http_result.stderr"
+
+    # Wait for SSH
+    - name: Wait for SSH on App1 Server
+      wait_for:
+        host: "{{ app1_server_ip.stdout }}"
+        port: 22
+        delay: 10
+        timeout: 300
+        search_regex: OpenSSH
+      when: not ansible_check_mode
+
+    - name: Wait for SSH on App Server
+      wait_for:
+        host: "{{ app_server_ip.stdout }}"
+        port: 22
+        delay: 10
+        timeout: 300
+        search_regex: OpenSSH
+      when: not ansible_check_mode
+
+    # Generate Output Files
+    - name: Display VM Information
+      debug:
+        msg:
+          - "✅ VMs Provisioned Successfully!"
+          - "App1 Server: {{ app1_server_ip.stdout }}"
+          - "App Server : {{ app_server_ip.stdout }}"
+
+    - name: Save IPs to file
+      copy:
+        content: |
+          App1 Server: {{ app1_server_ip.stdout }}
+          App Server: {{ app_server_ip.stdout }}
+        dest: vm-ips.txt
+      when: not ansible_check_mode
+
+    - name: Generate Inventory File
+      copy:
+        content: |
+          [nfs-servers]
+          jenkins-server ansible_host=localhost ansible_connection=local ansible_become_method=sudo
+
+          [app-servers]
+          app1-server ansible_host={{ app1_server_ip.stdout }} ansible_user={{ ssh_user }} ansible_ssh_private_key_file={{ lookup('env', 'HOME') }}/.ssh/ansible_ed25519
+          app-server ansible_host={{ app_server_ip.stdout }} ansible_user={{ ssh_user }} ansible_ssh_private_key_file={{ lookup('env', 'HOME') }}/.ssh/ansible_ed25519
+        dest: inventory-generated.ini
+      when: not ansible_check_mode

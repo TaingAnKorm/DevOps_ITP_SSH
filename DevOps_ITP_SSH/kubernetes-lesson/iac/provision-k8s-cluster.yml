@@ -1,0 +1,207 @@
+---
+- name: Provision GCP VMs for Kubernetes Cluster
+  hosts: localhost
+  gather_facts: false
+  vars:
+    gcp_project: taing-an-999
+    gcp_region: asia-southeast1
+    gcp_zone: asia-southeast1-b
+    gcp_cred_file: /home/kta/DevOps_ITP_SSH/kubernetes-lesson/iac/gcp-key.json
+    network_name: k8s-network
+    subnet_name: k8s-subnet
+    subnet_cidr: 10.10.1.0/24
+    
+  tasks:
+    - name: Create VPC network
+      google.cloud.gcp_compute_network:
+        name: "{{ network_name }}"
+        auto_create_subnetworks: false
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        state: present
+      register: network
+
+    - name: Create subnet
+      google.cloud.gcp_compute_subnetwork:
+        name: "{{ subnet_name }}"
+        region: "{{ gcp_region }}"
+        network: "{{ network }}"
+        ip_cidr_range: "{{ subnet_cidr }}"
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        state: present
+      register: subnet
+
+    - name: Create firewall rule - Allow internal
+      google.cloud.gcp_compute_firewall:
+        name: k8s-allow-internal
+        network: "{{ network }}"
+        allowed:
+          - ip_protocol: tcp
+            ports:
+              - '0-65535'
+          - ip_protocol: udp
+            ports:
+              - '0-65535'
+          - ip_protocol: icmp
+        source_ranges:
+          - "{{ subnet_cidr }}"
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        state: present
+
+    - name: Create firewall rule - Allow SSH
+      google.cloud.gcp_compute_firewall:
+        name: k8s-allow-ssh
+        network: "{{ network }}"
+        allowed:
+          - ip_protocol: tcp
+            ports:
+              - '22'
+        source_ranges:
+          - '0.0.0.0/0'
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        state: present
+
+    - name: Create firewall rule - Allow Kubernetes API
+      google.cloud.gcp_compute_firewall:
+        name: k8s-allow-api
+        network: "{{ network }}"
+        allowed:
+          - ip_protocol: tcp
+            ports:
+              - '6443'
+        source_ranges:
+          - '0.0.0.0/0'
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        state: present
+
+    - name: Create firewall rule - Allow NodePort services
+      google.cloud.gcp_compute_firewall:
+        name: k8s-allow-nodeport
+        network: "{{ network }}"
+        allowed:
+          - ip_protocol: tcp
+            ports:
+              - '30000-32767'
+        source_ranges:
+          - '0.0.0.0/0'
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        state: present
+
+    - name: Read SSH public key
+      slurp:
+        src: ~/.ssh/id_rsa.pub
+      register: ssh_key
+
+    - name: Create master node
+      google.cloud.gcp_compute_instance:
+        name: k8s-master
+        machine_type: e2-standard-2
+        zone: "{{ gcp_zone }}"
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        disks:
+          - auto_delete: true
+            boot: true
+            initialize_params:
+              disk_size_gb: 50
+              source_image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        network_interfaces:
+          - network: "{{ network }}"
+            subnetwork: "{{ subnet }}"
+            network_ip: 10.10.1.100
+            access_configs:
+              - name: External NAT
+                type: ONE_TO_ONE_NAT
+        metadata:
+          ssh-keys: "kta:{{ ssh_key.content | b64decode }}"
+        tags:
+          items:
+            - k8s-master
+        state: present
+      register: master_instance
+
+    - name: Create worker node 1
+      google.cloud.gcp_compute_instance:
+        name: k8s-worker1
+        machine_type: e2-standard-2
+        zone: "{{ gcp_zone }}"
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        disks:
+          - auto_delete: true
+            boot: true
+            initialize_params:
+              disk_size_gb: 50
+              source_image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        network_interfaces:
+          - network: "{{ network }}"
+            subnetwork: "{{ subnet }}"
+            network_ip: 10.10.1.101
+            access_configs:
+              - name: External NAT
+                type: ONE_TO_ONE_NAT
+        metadata:
+          ssh-keys: "kta:{{ ssh_key.content | b64decode }}"
+        tags:
+          items:
+            - k8s-worker
+        state: present
+      register: worker1_instance
+
+    - name: Create worker node 2
+      google.cloud.gcp_compute_instance:
+        name: k8s-worker2
+        machine_type: e2-standard-2
+        zone: "{{ gcp_zone }}"
+        project: "{{ gcp_project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+        disks:
+          - auto_delete: true
+            boot: true
+            initialize_params:
+              disk_size_gb: 50
+              source_image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        network_interfaces:
+          - network: "{{ network }}"
+            subnetwork: "{{ subnet }}"
+            network_ip: 10.10.1.102
+            access_configs:
+              - name: External NAT
+                type: ONE_TO_ONE_NAT
+        metadata:
+          ssh-keys: "kta:{{ ssh_key.content | b64decode }}"
+        tags:
+          items:
+            - k8s-worker
+        state: present
+      register: worker2_instance
+
+    - name: Display instance information
+      debug:
+        msg:
+          - "Master: {{ master_instance.networkInterfaces[0].accessConfigs[0].natIP }} (internal: 10.10.1.100)"
+          - "Worker1: {{ worker1_instance.networkInterfaces[0].accessConfigs[0].natIP }} (internal: 10.10.1.101)"
+          - "Worker2: {{ worker2_instance.networkInterfaces[0].accessConfigs[0].natIP }} (internal: 10.10.1.102)"
+
+    - name: Save IPs to file for later use
+      copy:
+        content: |
+          MASTER_IP={{ master_instance.networkInterfaces[0].accessConfigs[0].natIP }}
+          WORKER1_IP={{ worker1_instance.networkInterfaces[0].accessConfigs[0].natIP }}
+          WORKER2_IP={{ worker2_instance.networkInterfaces[0].accessConfigs[0].natIP }}
+        dest: /home/kta/DevOps_ITP_SSH/kubernetes-lesson/iac/vm_ips.txt
+

@@ -1,0 +1,23 @@
+---
+# GCP Project Configuration
+gcp_project: feisty-script-469614-h4
+gcp_region: asia-southeast1
+gcp_zone: asia-southeast1-a
+gcp_auth_kind: serviceaccount
+gcp_cred_file: "{{ lookup('env', 'HOME') }}/ansible-lesson/iac/gcp-key.json"
+
+# VM Configuration
+vm_machine_type: e2-medium
+vm_image_project: ubuntu-os-cloud
+vm_image_family: ubuntu-2204-lts
+
+# Network Configuration
+network_name: default
+
+# VM Names
+app1_server_name: app1-server
+app_server_name: app-server
+
+# SSH Configuration
+ssh_user: kta
+ssh_key_path: "{{ lookup('env', 'HOME') }}/.ssh/ansible_ed25519.pub"
